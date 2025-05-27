@@ -1,3 +1,8 @@
+Next Steps:
+- CIFAR100, get to 80%+
+- svhn
+- Other image classifications?
+
 Faster:
 - Parallel using multiple CPU cores for faster processing
 - Using gpu accelleration. What is CUDA?

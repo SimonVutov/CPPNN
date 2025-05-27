@@ -305,7 +305,8 @@ struct Network {
             
             // Last layer typically uses linear activation for classification
             if (i == layer_sizes.size() - 2 && activations_types.empty()) {
-                act_type = ActivationType::LINEAR;
+                // act_type = ActivationType::LINEAR;
+                act_type = ActivationType::RELU;
             }
             
             add_dense(layer_sizes[i], layer_sizes[i + 1], act_type);
@@ -466,18 +467,12 @@ int main() {
     Network network(0.001f); // learning rate
     
     // Method 1: Build network with layer sizes and activation types
-    vector<int> layer_sizes = {3072, 12, 12, 10};
-    vector<ActivationType> activations = {
-        ActivationType::LEAKY_RELU,  // First hidden layer
-        ActivationType::LEAKY_RELU,  // Second hidden layer
-        ActivationType::LINEAR       // Output layer
-    };
+    vector<int> layer_sizes = {3072, 512, 128, 10};
     
-    network.build(layer_sizes, activations);
+    network.build(layer_sizes);
     
     // Train the network
-    network.train(train_images, train_labels, test_images, test_labels, 
-                  6, true, 5); // 20 epochs, shuffle data, evaluate every 5 epochs
+    network.train(train_images, train_labels, test_images, test_labels, 32, true, 6);
     
     // Save the trained network
     network.save("cifar_network");

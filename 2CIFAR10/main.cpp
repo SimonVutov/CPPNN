@@ -7,12 +7,26 @@
 #include <vector>
 #include <functional>
 
-// g++ -O2 -std=c++17 main2.cpp -o nn
+// g++ -O2 -std=c++17 main.cpp -o nn
 // ./nn
 
 using namespace std;
 
-// Add these functions to replace the MNIST reading functions
+void msg(const string& message) {
+    // open in append mode
+    ofstream result_file("result.txt", ios::app);
+    if (!result_file) {
+        cerr << "Could not open result.txt for appending\n";
+        return;
+    }
+
+    // write to console
+    cout << message;
+
+    // append to file
+    result_file << message;
+    // no need to explicitly close – it'll close when it goes out of scope
+}
 
 struct CifarData {
     vector<vector<float>> images;
@@ -61,7 +75,7 @@ pair<vector<vector<float>>, vector<uint8_t>> load_cifar_train() {
     // Load all 5 training batches
     for (int batch = 1; batch <= 5; ++batch) {
         string filename = "cifar-10-batches-bin/data_batch_" + to_string(batch) + ".bin";
-        cout << "Loading " << filename << "..." << endl;
+        msg("Loading " + filename + "...\n");
         
         CifarData batch_data = read_cifar_batch(filename);
         
@@ -74,25 +88,19 @@ pair<vector<vector<float>>, vector<uint8_t>> load_cifar_train() {
                          batch_data.labels.end());
     }
     
-    cout << "Loaded " << all_images.size() << " training images" << endl;
+    msg("Loaded " + to_string(all_images.size()) + " training images\n");
     return make_pair(all_images, all_labels);
 }
 
 pair<vector<vector<float>>, vector<uint8_t>> load_cifar_test() {
     string filename = "cifar-10-batches-bin/test_batch.bin";
-    cout << "Loading " << filename << "..." << endl;
+    msg("Loading " + filename + "...\n");
     
     CifarData test_data = read_cifar_batch(filename);
     
-    cout << "Loaded " << test_data.images.size() << " test images" << endl;
+    msg("Loaded " + to_string(test_data.images.size()) + " test images\n");
     return make_pair(test_data.images, test_data.labels);
 }
-
-// CIFAR-10 class names for reference
-vector<string> cifar_classes = {
-    "airplane", "automobile", "bird", "cat", "deer",
-    "dog", "frog", "horse", "ship", "truck"
-};
 
 // Activation functions
 float relu(float x) {
@@ -138,9 +146,41 @@ float leaky_relu_derivative(float x) {
     return x > 0 ? 1.0f : 0.01f;
 }
 
+// CIFAR-10 class names for reference
+vector<string> cifar_classes = {
+    "airplane", "automobile", "bird", "cat", "deer",
+    "dog", "frog", "horse", "ship", "truck"
+};
+
 // Define function pointer types
 using ActivationFunc = function<float(float)>;
 using DerivativeFunc = function<float(float)>;
+
+// Activation type enum for easy specification
+enum class ActivationType {
+    LINEAR,
+    RELU,
+    LEAKY_RELU,
+    TANH,
+    SIGMOID
+};
+
+// Helper function to get activation functions
+pair<ActivationFunc, DerivativeFunc> get_activation_functions(ActivationType type) {
+    switch (type) {
+        case ActivationType::RELU:
+            return {relu, relu_derivative};
+        case ActivationType::LEAKY_RELU:
+            return {leaky_relu_activation, leaky_relu_derivative};
+        case ActivationType::TANH:
+            return {tanh_activation, tanh_derivative};
+        case ActivationType::SIGMOID:
+            return {sigmoid_activation, sigmoid_derivative};
+        case ActivationType::LINEAR:
+        default:
+            return {linear_activation, linear_derivative};
+    }
+}
 
 struct DenseLayer { // Fully connected layer
     int in_size, out_size;
@@ -148,49 +188,55 @@ struct DenseLayer { // Fully connected layer
     vector<float> biases;
     vector<float> input, output, delta;
     vector<float> pre_activation; // Store values before activation for derivative calculation
+    ActivationType activation_type;
+    ActivationFunc activation_func;
+    DerivativeFunc derivative_func;
 
-    DenseLayer(int in_sz, int out_sz) : in_size(in_sz), out_size(out_sz) {
+    DenseLayer(int in_sz, int out_sz, ActivationType act_type = ActivationType::LINEAR) 
+        : in_size(in_sz), out_size(out_sz), activation_type(act_type) {
         weights.resize(out_size, vector<float>(in_size));
         biases.resize(out_size);
         pre_activation.resize(out_size);
+        output.resize(out_size);
+        
+        // Set activation functions
+        auto [act_func, deriv_func] = get_activation_functions(activation_type);
+        activation_func = act_func;
+        derivative_func = deriv_func;
+        
+        // Xavier/Glorot initialization
         random_device rd;
         mt19937 gen(rd());
-        uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        float limit = sqrt(6.0f / (in_size + out_size));
+        uniform_real_distribution<float> dist(-limit, limit);
+        
         for (auto &row : weights)
             for (auto &w : row)
                 w = dist(gen);
+        
+        // Initialize biases to zero
+        fill(biases.begin(), biases.end(), 0.0f);
     }
 
-    vector<float> forward(const vector<float>& x, ActivationFunc activation_func = nullptr) {
+    vector<float> forward(const vector<float>& x) {
         input = x;
-        output.resize(out_size);
-        pre_activation.resize(out_size);
         
         for (int i = 0; i < out_size; ++i) {
             float sum = biases[i];
             for (int j = 0; j < in_size; ++j)
                 sum += weights[i][j] * x[j];
             
-            pre_activation[i] = sum; // Store pre-activation value
-            
-            if (activation_func) {
-                output[i] = activation_func(sum);
-            } else {
-                output[i] = sum; // No activation (linear)
-            }
+            pre_activation[i] = sum;
+            output[i] = activation_func(sum);
         }
         return output;
     }
     
-    vector<float> backward(const vector<float>& grad_out, float lr, DerivativeFunc derivative_func = nullptr) {
+    vector<float> backward(const vector<float>& grad_out, float lr) {
         delta.assign(in_size, 0.0f);
+        
         for (int i = 0; i < out_size; ++i) {
-            float activation_grad = 1.0f; // Default for linear/no activation
-            
-            if (derivative_func) {
-                activation_grad = derivative_func(pre_activation[i]);
-            }
-            
+            float activation_grad = derivative_func(pre_activation[i]);
             float grad = grad_out[i] * activation_grad;
             
             for (int j = 0; j < in_size; ++j) {
@@ -231,118 +277,210 @@ int argmax(const vector<float> &v) {
   return max_element(v.begin(), v.end()) - v.begin();
 }
 
-void save_layer(const DenseLayer& L, const string& file) {
-    ofstream f(file, ios::binary);
-    int in = L.in_size, out = L.out_size;
-    f.write((char*)&in,  sizeof(int));
-    f.write((char*)&out, sizeof(int));
-    for (auto& row : L.weights)  f.write((char*)row.data(), row.size()*sizeof(float));
-    f.write((char*)L.biases.data(), L.biases.size()*sizeof(float));
-}
+struct Network {
+    vector<DenseLayer> layers;
+    vector<vector<float>> activations; // Store activations for each layer
+    float lr;
+
+    Network(float learning_rate = 0.001f) : lr(learning_rate) {}
+
+    // Add dense layer to the network
+    void add_dense(int input_size, int output_size, ActivationType activation = ActivationType::RELU) {
+        layers.emplace_back(input_size, output_size, activation);
+        activations.resize(layers.size());
+    }
+
+    // Build network from layer sizes and activations
+    void build(const vector<int>& layer_sizes, 
+               const vector<ActivationType>& activations_types = {}) {
+        layers.clear();
+        
+        for (int i = 0; i < layer_sizes.size() - 1; ++i) {
+            ActivationType act_type = ActivationType::RELU; // default
+            
+            // Use provided activation or default
+            if (i < activations_types.size()) {
+                act_type = activations_types[i];
+            }
+            
+            // Last layer typically uses linear activation for classification
+            if (i == layer_sizes.size() - 2 && activations_types.empty()) {
+                act_type = ActivationType::LINEAR;
+            }
+            
+            add_dense(layer_sizes[i], layer_sizes[i + 1], act_type);
+        }
+        
+        activations.resize(layers.size());
+        msg("Network built with " + to_string(layers.size()) + " layers:\n");
+        for (int i = 0; i < layers.size(); ++i) {
+            msg("  Layer " + to_string(i + 1) + ": " + to_string(layers[i].in_size) 
+                 + " -> " + to_string(layers[i].out_size) + " (");
+            
+            switch (layers[i].activation_type) {
+                case ActivationType::RELU: msg("ReLU"); break;
+                case ActivationType::LEAKY_RELU: msg("Leaky ReLU"); break;
+                case ActivationType::TANH: msg("Tanh"); break;
+                case ActivationType::SIGMOID: msg("Sigmoid"); break;
+                case ActivationType::LINEAR: msg("Linear"); break;
+            }
+            msg(")\n");
+        }
+    }
+
+    // Forward pass through the entire network
+    vector<float> forward(const vector<float>& x) {
+        vector<float> current_input = x;
+        
+        for (int i = 0; i < layers.size(); ++i) {
+            activations[i] = layers[i].forward(current_input);
+            current_input = activations[i];
+        }
+        
+        return activations.back(); // Return final output
+    }
+
+    // Backward pass through the entire network
+    void backward(const vector<float>& grad_output) {
+        vector<float> current_grad = grad_output;
+        
+        for (int i = layers.size() - 1; i >= 0; --i) {
+            current_grad = layers[i].backward(current_grad, lr);
+        }
+    }
+
+    // Train on a single sample
+    float train_sample(const vector<float>& x, int y) {
+        // Forward pass
+        auto output = forward(x);
+        auto pred = softmax(output);
+        
+        // Calculate loss
+        float loss = cross_entropy(pred, y);
+        
+        // Backward pass
+        auto grad = softmax_loss_backward(pred, y);
+        backward(grad);
+        
+        return loss;
+    }
+
+    // Predict single sample
+    int predict(const vector<float>& x) {
+        auto output = forward(x);
+        auto pred = softmax(output);
+        return argmax(pred);
+    }
+
+    // Evaluate accuracy on dataset
+    float evaluate(const vector<vector<float>>& X, const vector<uint8_t>& y) {
+        int correct = 0;
+        for (int i = 0; i < X.size(); ++i) {
+            if (predict(X[i]) == y[i]) {
+                correct++;
+            }
+        }
+        return (float)correct / X.size();
+    }
+
+    // Train the network
+    void train(const vector<vector<float>>& X_train, const vector<uint8_t>& y_train,
+               const vector<vector<float>>& X_test, const vector<uint8_t>& y_test,
+               int epochs = 10, bool shuffle_data = true, int eval_every = 5) {
+        
+        int n_train = X_train.size();
+        vector<int> indices(n_train);
+        iota(indices.begin(), indices.end(), 0);
+        
+        random_device rd;
+        mt19937 g(rd());
+        
+        for (int epoch = 0; epoch < epochs; ++epoch) {
+            float total_loss = 0.0f;
+            
+            // Shuffle training data
+            if (shuffle_data) {
+                shuffle(indices.begin(), indices.end(), g);
+            }
+            
+            // Train on all samples
+            for (int idx = 0; idx < n_train; ++idx) {
+                int i = indices[idx];
+                total_loss += train_sample(X_train[i], y_train[i]);
+            }
+            
+            // Calculate training accuracy
+            float train_acc = evaluate(X_train, y_train);
+            
+            msg("Epoch " + to_string(epoch + 1) + "/" + to_string(epochs) 
+                 + " - Loss: " + to_string(total_loss / n_train)
+                 + " - Train Acc: " + to_string(train_acc * 100) + "%\n");
+            
+            // Evaluate on test set
+            if ((epoch + 1) % eval_every == 0 || epoch == epochs - 1) {
+                float test_acc = evaluate(X_test, y_test);
+                msg("  Test Accuracy: " + to_string(test_acc * 100) + "%\n");
+            }
+        }
+    }
+
+    // Set learning rate
+    void set_learning_rate(float new_lr) {
+        lr = new_lr;
+    }
+
+    // Save network to files
+    void save(const string& prefix) {
+        for (int i = 0; i < layers.size(); ++i) {
+            string filename = prefix + "_layer_" + to_string(i) + ".bin";
+            save_layer(layers[i], filename);
+        }
+        msg("Network saved with prefix: " + prefix + "\n");
+    }
+
+private:
+    void save_layer(const DenseLayer& L, const string& file) {
+        ofstream f(file, ios::binary);
+        int in = L.in_size, out = L.out_size;
+        int act_type = static_cast<int>(L.activation_type);
+        
+        f.write((char*)&in, sizeof(int));
+        f.write((char*)&out, sizeof(int));
+        f.write((char*)&act_type, sizeof(int));
+        
+        for (auto& row : L.weights) 
+            f.write((char*)row.data(), row.size() * sizeof(float));
+        f.write((char*)L.biases.data(), L.biases.size() * sizeof(float));
+        
+        f.close();
+    }
+};
 
 int main() {
     // Load CIFAR-10 data
-    auto [train_images, train_labels] = load_cifar_train();  // 50,000 samples
-    auto [test_images, test_labels] = load_cifar_test();     // 10,000 samples
+    auto [train_images, train_labels] = load_cifar_train();
+    auto [test_images, test_labels] = load_cifar_test();
+    msg("Training samples: " + to_string(train_images.size()) + "\n" + "Test samples: " + to_string(test_images.size()) + "\n" + "Input size: " + to_string(train_images[0].size()) + "\n");
     
-    int n_train = train_images.size();
-    int n_test = test_images.size();
+    // Create network using the modular approach
+    Network network(0.001f); // learning rate
     
-    cout << "Training samples: " << n_train << endl;
-    cout << "Test samples: " << n_test << endl;
-    cout << "Input size: " << train_images[0].size() << endl; // Should be 3072
+    // Method 1: Build network with layer sizes and activation types
+    vector<int> layer_sizes = {3072, 12, 12, 10};
+    vector<ActivationType> activations = {
+        ActivationType::LEAKY_RELU,  // First hidden layer
+        ActivationType::LEAKY_RELU,  // Second hidden layer
+        ActivationType::LINEAR       // Output layer
+    };
     
-    // Network architecture - need bigger network for CIFAR-10
-    DenseLayer l1(3072, 512);  // Much larger first layer
-    DenseLayer l2(512, 128);   // Add hidden layer
-    DenseLayer l3(128, 10);    // Output layer
+    network.build(layer_sizes, activations);
     
-    float lr = 0.001f;  // Lower learning rate for stability
-    ActivationFunc activation_func = leaky_relu_activation;
-    DerivativeFunc derivative_func = leaky_relu_derivative;
-
-    // Open result file for writing
-    ofstream result_file("cifar_results.txt");
+    // Train the network
+    network.train(train_images, train_labels, test_images, test_labels, 
+                  6, true, 5); // 20 epochs, shuffle data, evaluate every 5 epochs
     
-    // Training loop
-    for (int epoch = 0; epoch < 20; epoch++) {  // More epochs needed
-        float total_loss = 0.0f;
-        int correct = 0;
-        
-        // Shuffle training data each epoch
-        vector<int> indices(n_train);
-        iota(indices.begin(), indices.end(), 0);
-        random_device rd;
-        mt19937 g(rd());
-        shuffle(indices.begin(), indices.end(), g);
-        
-        for (int idx = 0; idx < n_train; idx++) {
-            int i = indices[idx];
-            auto x = train_images[i];
-            int y = train_labels[i];
-
-            // Forward pass through all layers
-            auto h1 = l1.forward(x, activation_func);
-            auto h2 = l2.forward(h1, activation_func);
-            auto out = l3.forward(h2); // No activation for output layer
-            auto pred = softmax(out);
-            
-            total_loss += cross_entropy(pred, y);
-            correct += (argmax(pred) == y);
-
-            // Backward pass
-            auto grad = softmax_loss_backward(pred, y);
-            auto grad_l3 = l3.backward(grad, lr);
-            auto grad_l2 = l2.backward(grad_l3, lr, derivative_func);
-            l1.backward(grad_l2, lr, derivative_func);
-        }
-        
-        string epoch_msg = "Epoch " + to_string(epoch + 1) + 
-                          " - Loss: " + to_string(total_loss / n_train) + 
-                          ", Accuracy: " + to_string((float)correct / n_train * 100) + "%\n";
-        
-        cout << epoch_msg;
-        result_file << epoch_msg;
-        
-        // Evaluate on test set every 5 epochs
-        if ((epoch + 1) % 5 == 0) {
-            int test_correct = 0;
-            for (int i = 0; i < n_test; ++i) {
-                auto h1 = l1.forward(test_images[i], activation_func);
-                auto h2 = l2.forward(h1, activation_func);
-                auto out = l3.forward(h2);
-                auto pred = softmax(out);
-                if (argmax(pred) == test_labels[i])
-                    test_correct++;
-            }
-            
-            string test_msg = "  Test Accuracy: " + to_string((float)test_correct / n_test * 100) + "%\n";
-            cout << test_msg;
-            result_file << test_msg;
-        }
-    }
-    
-    // Final test evaluation
-    int correct = 0;
-    for (int i = 0; i < n_test; ++i) {
-        auto h1 = l1.forward(test_images[i], activation_func);
-        auto h2 = l2.forward(h1, activation_func);
-        auto out = l3.forward(h2);
-        auto pred = softmax(out);
-        if (argmax(pred) == test_labels[i])
-            correct++;
-    }
-    
-    string final_msg = "Final Test Accuracy: " + to_string((float)correct / n_test * 100) + "%\n";
-    cout << final_msg;
-    result_file << final_msg;
-    
-    result_file.close();
-    
-    // Save the trained models
-    save_layer(l1, "cifar_l1.bin");
-    save_layer(l2, "cifar_l2.bin");
-    save_layer(l3, "cifar_l3.bin");
+    // Save the trained network
+    network.save("cifar_network");
     
     return 0;
 }

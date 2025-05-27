@@ -1,0 +1,17 @@
+Faster:
+- Parallel using multiple CPU cores for faster processing
+- Using gpu accelleration. What is CUDA?
+
+Better Image Recognition:
+- Conv layers
+- Pooling layers
+- Setting bounding boxes around objects (Full svhn)
+
+Other Types of Machine Learning:
+- Classification of text
+- Generative Text (Transformer, Mexture of Experts)
+
+Other Languages:
+- C++
+- Rust
+- Python

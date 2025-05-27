@@ -7,7 +7,7 @@
 #include <vector>
 #include <functional>
 
-// g++ -O2 -std=c++17 main2.cpp -o nn
+// g++ -O2 -std=c++17 main.cpp -o nn
 // ./nn
 
 using namespace std;

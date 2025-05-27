@@ -1,0 +1,25 @@
+Network saved with prefix: cifar_network
+Loading cifar-10-batches-bin/data_batch_1.bin...
+Loading cifar-10-batches-bin/data_batch_2.bin...
+Loading cifar-10-batches-bin/data_batch_3.bin...
+Loading cifar-10-batches-bin/data_batch_4.bin...
+Loading cifar-10-batches-bin/data_batch_5.bin...
+Loaded 50000 training images
+Loading cifar-10-batches-bin/test_batch.bin...
+Loaded 10000 test images
+Training samples: 50000
+Test samples: 10000
+Input size: 3072
+Network built with 3 layers:
+  Layer 1: 3072 -> 12 (Leaky ReLU)
+  Layer 2: 12 -> 12 (Leaky ReLU)
+  Layer 3: 12 -> 10 (Linear)
+Epoch 1/6 - Loss: 2.148936 - Train Acc: 24.067999%
+Epoch 2/6 - Loss: 1.933945 - Train Acc: 31.571999%
+Epoch 3/6 - Loss: 1.853055 - Train Acc: 34.670002%
+Epoch 4/6 - Loss: 1.822512 - Train Acc: 34.343998%
+Epoch 5/6 - Loss: 1.799877 - Train Acc: 36.914001%
+  Test Accuracy: 36.000000%
+Epoch 6/6 - Loss: 1.775246 - Train Acc: 37.396000%
+  Test Accuracy: 36.489998%
+Network saved with prefix: cifar_network

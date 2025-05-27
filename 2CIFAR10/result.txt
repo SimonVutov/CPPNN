@@ -136,3 +136,24 @@ Network built with 3 layers:
   Layer 3: 128 -> 10 (ReLU)
 Epoch 1/32 - Loss: 1.932188 - Train Acc: 37.948002%
 Epoch 2/32 - Loss: 1.746690 - Train Acc: 43.669998%
+Epoch 3/32 - Loss: 1.588063 - Train Acc: 45.157997%
+Epoch 4/32 - Loss: 1.517622 - Train Acc: 48.394001%
+Epoch 5/32 - Loss: 1.462385 - Train Acc: 50.269997%
+Epoch 6/32 - Loss: 1.421753 - Train Acc: 48.796001%
+  Test Accuracy: 46.540001%
+Epoch 7/32 - Loss: 1.385632 - Train Acc: 52.350002%
+Epoch 8/32 - Loss: 1.350542 - Train Acc: 53.178001%
+Epoch 9/32 - Loss: 1.318994 - Train Acc: 54.562004%
+Epoch 10/32 - Loss: 1.290111 - Train Acc: 55.238003%
+Epoch 11/32 - Loss: 1.263138 - Train Acc: 56.040001%
+Epoch 12/32 - Loss: 1.238339 - Train Acc: 57.818001%
+  Test Accuracy: 52.130001%
+Epoch 13/32 - Loss: 1.213179 - Train Acc: 57.340004%
+Epoch 14/32 - Loss: 1.191014 - Train Acc: 55.309998%
+Epoch 15/32 - Loss: 1.168313 - Train Acc: 58.454002%
+Epoch 16/32 - Loss: 1.145294 - Train Acc: 62.271999%
+Epoch 17/32 - Loss: 1.125303 - Train Acc: 61.427998%
+Epoch 18/32 - Loss: 1.103072 - Train Acc: 63.143997%
+  Test Accuracy: 53.340000%
+Epoch 19/32 - Loss: 1.083083 - Train Acc: 62.841999%
+Epoch 20/32 - Loss: 1.064832 - Train Acc: 65.464005%

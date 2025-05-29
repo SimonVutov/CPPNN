@@ -6,13 +6,20 @@
 #include <random>
 #include <vector>
 #include <functional>
+#include <variant>
 
-// g++ -O2 -std=c++17 main.cpp -o nn
-// ./nn
+// g++ -O2 -std=c++17 main.cpp -o nn && ./nn
 
 using namespace std;
 
 void msg(const string& message) {
+    // add time and date to the message
+    auto now = chrono::system_clock::now();
+    time_t now_time = chrono::system_clock::to_time_t(now);
+    string time_str = ctime(&now_time);
+    time_str.pop_back(); // remove newline
+    const string newMessage = time_str + " : " + message;
+
     // open in append mode
     ofstream result_file("result.txt", ios::app);
     if (!result_file) {
@@ -21,10 +28,10 @@ void msg(const string& message) {
     }
 
     // write to console
-    cout << message;
+    cout << newMessage;
 
     // append to file
-    result_file << message;
+    result_file << newMessage;
     // no need to explicitly close – it'll close when it goes out of scope
 }
 
@@ -249,6 +256,153 @@ struct DenseLayer { // Fully connected layer
     }
 };
 
+struct ConvolutionalLayer {
+    int in_h, in_w, in_c;
+    int out_h, out_w, out_c;
+    int kernel_size;
+    int stride;
+    int padding;
+    vector<vector<vector<vector<float>>>> weights; // [out_c][in_c][kernel_size][kernel_size]
+    vector<float> biases;
+    // Store input and output for backward
+    vector<vector<vector<float>>> last_input;
+    vector<vector<vector<float>>> last_output;
+
+    ConvolutionalLayer(int in_h, int in_w, int in_c, int out_h, int out_w, int out_c, int kernel_size, int stride, int padding) 
+        : in_h(in_h), in_w(in_w), in_c(in_c), out_h(out_h), out_w(out_w), out_c(out_c), kernel_size(kernel_size), stride(stride), padding(padding) {
+        weights.resize(out_c, vector<vector<vector<float>>>(in_c, vector<vector<float>>(kernel_size, vector<float>(kernel_size))));
+        biases.resize(out_c);
+        // Xavier/Glorot initialization
+        random_device rd;
+        mt19937 gen(rd());
+        float fan_in = in_c * kernel_size * kernel_size;
+        float fan_out = out_c;
+        float limit = sqrt(6.0f / (fan_in + fan_out));
+        uniform_real_distribution<float> dist(-limit, limit);
+        for (int i = 0; i < out_c; ++i) {
+            for (int j = 0; j < in_c; ++j) {
+                for (int k = 0; k < kernel_size; ++k) {
+                    for (int l = 0; l < kernel_size; ++l) {
+                        weights[i][j][k][l] = dist(gen);
+                    }
+                }
+            }
+        }
+        fill(biases.begin(), biases.end(), 0.0f);
+    }
+
+    vector<vector<vector<float>>> pad_input(const vector<vector<vector<float>>>& x) {
+        int padded_h = in_h + 2 * padding;
+        int padded_w = in_w + 2 * padding;
+        vector<vector<vector<float>>> padded(in_c, vector<vector<float>>(padded_h, vector<float>(padded_w, 0.0f)));
+        for (int c = 0; c < in_c; ++c) {
+            for (int i = 0; i < in_h; ++i) {
+                for (int j = 0; j < in_w; ++j) {
+                    padded[c][i + padding][j + padding] = x[c][i][j];
+                }
+            }
+        }
+        return padded;
+    }
+
+    vector<vector<vector<float>>> forward(const vector<vector<vector<float>>>& x) {
+        last_input = x;
+        auto padded_input = pad_input(x);
+        vector<vector<vector<float>>> out(out_c, vector<vector<float>>(out_h, vector<float>(out_w, 0.0f)));
+        for (int f = 0; f < out_c; ++f) {
+            for (int i = 0; i < out_h; ++i) {
+                for (int j = 0; j < out_w; ++j) {
+                    float sum = biases[f];
+                    for (int c = 0; c < in_c; ++c) {
+                        for (int ki = 0; ki < kernel_size; ++ki) {
+                            for (int kj = 0; kj < kernel_size; ++kj) {
+                                int in_i = i * stride + ki;
+                                int in_j = j * stride + kj;
+                                sum += padded_input[c][in_i][in_j] * weights[f][c][ki][kj];
+                            }
+                        }
+                    }
+                    out[f][i][j] = sum;
+                }
+            }
+        }
+        last_output = out;
+        return out;
+    }
+
+    vector<vector<vector<float>>> backward(const vector<vector<vector<float>>>& grad_out, float lr) {
+        // grad_out: [out_c][out_h][out_w]
+        // Returns grad_input: [in_c][in_h][in_w]
+        auto padded_input = pad_input(last_input);
+        int padded_h = in_h + 2 * padding;
+        int padded_w = in_w + 2 * padding;
+        // Gradients
+        vector<vector<vector<vector<float>>>> grad_weights(out_c, vector<vector<vector<float>>>(in_c, vector<vector<float>>(kernel_size, vector<float>(kernel_size, 0.0f))));
+        vector<float> grad_biases(out_c, 0.0f);
+        vector<vector<vector<float>>> grad_input_padded(in_c, vector<vector<float>>(padded_h, vector<float>(padded_w, 0.0f)));
+        // Compute gradients
+        for (int f = 0; f < out_c; ++f) {
+            for (int i = 0; i < out_h; ++i) {
+                for (int j = 0; j < out_w; ++j) {
+                    float grad = grad_out[f][i][j];
+                    grad_biases[f] += grad;
+                    for (int c = 0; c < in_c; ++c) {
+                        for (int ki = 0; ki < kernel_size; ++ki) {
+                            for (int kj = 0; kj < kernel_size; ++kj) {
+                                int in_i = i * stride + ki;
+                                int in_j = j * stride + kj;
+                                grad_weights[f][c][ki][kj] += grad * padded_input[c][in_i][in_j];
+                                grad_input_padded[c][in_i][in_j] += grad * weights[f][c][ki][kj];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Update weights and biases
+        for (int f = 0; f < out_c; ++f) {
+            for (int c = 0; c < in_c; ++c) {
+                for (int ki = 0; ki < kernel_size; ++ki) {
+                    for (int kj = 0; kj < kernel_size; ++kj) {
+                        weights[f][c][ki][kj] -= lr * grad_weights[f][c][ki][kj];
+                    }
+                }
+            }
+            biases[f] -= lr * grad_biases[f];
+        }
+        // Remove padding from grad_input_padded
+        vector<vector<vector<float>>> grad_input(in_c, vector<vector<float>>(in_h, vector<float>(in_w, 0.0f)));
+        for (int c = 0; c < in_c; ++c) {
+            for (int i = 0; i < in_h; ++i) {
+                for (int j = 0; j < in_w; ++j) {
+                    grad_input[c][i][j] = grad_input_padded[c][i + padding][j + padding];
+                }
+            }
+        }
+        return grad_input;
+    }
+};
+
+// Utility: flatten 3D tensor to 1D vector
+vector<float> flatten3D(const vector<vector<vector<float>>>& x) {
+    vector<float> out;
+    for (const auto& mat : x)
+        for (const auto& row : mat)
+            for (float v : row)
+                out.push_back(v);
+    return out;
+}
+// Utility: reshape 1D vector to 3D tensor (channels, height, width)
+vector<vector<vector<float>>> reshape1Dto3D(const vector<float>& x, int c, int h, int w) {
+    vector<vector<vector<float>>> out(c, vector<vector<float>>(h, vector<float>(w)));
+    int idx = 0;
+    for (int ch = 0; ch < c; ++ch)
+        for (int i = 0; i < h; ++i)
+            for (int j = 0; j < w; ++j)
+                out[ch][i][j] = x[idx++];
+    return out;
+}
+
 // Softmax + Cross-Entropy loss
 vector<float> softmax(const vector<float> &logits) {
   float max_logit = *max_element(logits.begin(), logits.end());
@@ -277,182 +431,155 @@ int argmax(const vector<float> &v) {
   return max_element(v.begin(), v.end()) - v.begin();
 }
 
-struct Network {
-    vector<DenseLayer> layers;
-    vector<vector<float>> activations; // Store activations for each layer
-    float lr;
+// Layer type enum
+enum class LayerType { DENSE, CONV, FLATTEN };
 
+struct Layer {
+    LayerType type;
+    DenseLayer dense;
+    ConvolutionalLayer conv;
+    // For flatten, no parameters needed
+    Layer(DenseLayer d) : type(LayerType::DENSE), dense(std::move(d)), conv(0,0,0,0,0,0,0,0,0) {}
+    Layer(ConvolutionalLayer c) : type(LayerType::CONV), dense(0,0), conv(std::move(c)) {}
+    Layer() : type(LayerType::FLATTEN), dense(0,0), conv(0,0,0,0,0,0,0,0,0) {}
+};
+
+struct Network {
+    vector<Layer> layers;
+    vector<vector<float>> activations_1d; // for dense
+    vector<vector<vector<vector<float>>>> activations_3d; // for conv
+    float lr;
     Network(float learning_rate = 0.001f) : lr(learning_rate) {}
 
-    // Add dense layer to the network
+    void add_conv(int in_h, int in_w, int in_c, int out_h, int out_w, int out_c, int kernel, int stride, int padding) {
+        layers.emplace_back(ConvolutionalLayer(in_h, in_w, in_c, out_h, out_w, out_c, kernel, stride, padding));
+        activations_3d.resize(layers.size());
+    }
+    void add_flatten() {
+        layers.emplace_back(); // FLATTEN
+    }
     void add_dense(int input_size, int output_size, ActivationType activation = ActivationType::RELU) {
-        layers.emplace_back(input_size, output_size, activation);
-        activations.resize(layers.size());
+        layers.emplace_back(DenseLayer(input_size, output_size, activation));
+        activations_1d.resize(layers.size());
     }
-
-    // Build network from layer sizes and activations
-    void build(const vector<int>& layer_sizes, 
-               const vector<ActivationType>& activations_types = {}) {
+    // Build a simple conv net: conv, flatten, dense, output
+    void build_cnn() {
         layers.clear();
-        
-        for (int i = 0; i < layer_sizes.size() - 1; ++i) {
-            ActivationType act_type = ActivationType::RELU; // default
-            
-            // Use provided activation or default
-            if (i < activations_types.size()) {
-                act_type = activations_types[i];
-            }
-            
-            // Last layer typically uses linear activation for classification
-            if (i == layer_sizes.size() - 2 && activations_types.empty()) {
-                // act_type = ActivationType::LINEAR;
-                act_type = ActivationType::RELU;
-            }
-            
-            add_dense(layer_sizes[i], layer_sizes[i + 1], act_type);
-        }
-        
-        activations.resize(layers.size());
-        msg("Network built with " + to_string(layers.size()) + " layers:\n");
-        for (int i = 0; i < layers.size(); ++i) {
-            msg("  Layer " + to_string(i + 1) + ": " + to_string(layers[i].in_size) 
-                 + " -> " + to_string(layers[i].out_size) + " (");
-            
-            switch (layers[i].activation_type) {
-                case ActivationType::RELU: msg("ReLU"); break;
-                case ActivationType::LEAKY_RELU: msg("Leaky ReLU"); break;
-                case ActivationType::TANH: msg("Tanh"); break;
-                case ActivationType::SIGMOID: msg("Sigmoid"); break;
-                case ActivationType::LINEAR: msg("Linear"); break;
-            }
-            msg(")\n");
-        }
+        // CIFAR-10: 32x32x3
+        add_conv(32, 32, 3, 28, 28, 8, 5, 1, 0); // 8 filters, 5x5, stride 1, no padding
+        add_flatten();
+        add_dense(28*28*8, 64, ActivationType::RELU);
+        add_dense(64, 10, ActivationType::LINEAR);
+        activations_3d.resize(layers.size());
+        activations_1d.resize(layers.size());
     }
-
-    // Forward pass through the entire network
+    // Forward pass
     vector<float> forward(const vector<float>& x) {
-        vector<float> current_input = x;
-        
+        vector<vector<vector<float>>> current3d;
+        vector<float> current1d = x;
         for (int i = 0; i < layers.size(); ++i) {
-            activations[i] = layers[i].forward(current_input);
-            current_input = activations[i];
+            if (layers[i].type == LayerType::CONV) {
+                if (i == 0) current3d = reshape1Dto3D(current1d, 3, 32, 32);
+                current3d = layers[i].conv.forward(current3d);
+                activations_3d[i] = current3d;
+            } else if (layers[i].type == LayerType::FLATTEN) {
+                current1d = flatten3D(current3d);
+                activations_1d[i] = current1d;
+            } else if (layers[i].type == LayerType::DENSE) {
+                current1d = layers[i].dense.forward(current1d);
+                activations_1d[i] = current1d;
+            }
         }
-        
-        return activations.back(); // Return final output
+        return current1d;
     }
-
-    // Backward pass through the entire network
+    // Backward pass
     void backward(const vector<float>& grad_output) {
-        vector<float> current_grad = grad_output;
-        
+        vector<float> grad1d = grad_output;
+        vector<vector<vector<float>>> grad3d;
         for (int i = layers.size() - 1; i >= 0; --i) {
-            current_grad = layers[i].backward(current_grad, lr);
+            if (layers[i].type == LayerType::DENSE) {
+                grad1d = layers[i].dense.backward(grad1d, lr);
+            } else if (layers[i].type == LayerType::FLATTEN) {
+                // Unflatten grad1d to grad3d
+                int prev = i-1;
+                int c = activations_3d[prev].size();
+                int h = activations_3d[prev][0].size();
+                int w = activations_3d[prev][0][0].size();
+                grad3d = reshape1Dto3D(grad1d, c, h, w);
+            } else if (layers[i].type == LayerType::CONV) {
+                grad3d = layers[i].conv.backward(grad3d, lr);
+            }
         }
     }
-
-    // Train on a single sample
     float train_sample(const vector<float>& x, int y) {
-        // Forward pass
         auto output = forward(x);
         auto pred = softmax(output);
-        
-        // Calculate loss
         float loss = cross_entropy(pred, y);
-        
-        // Backward pass
         auto grad = softmax_loss_backward(pred, y);
         backward(grad);
-        
         return loss;
     }
-
-    // Predict single sample
     int predict(const vector<float>& x) {
         auto output = forward(x);
         auto pred = softmax(output);
         return argmax(pred);
     }
-
-    // Evaluate accuracy on dataset
     float evaluate(const vector<vector<float>>& X, const vector<uint8_t>& y) {
         int correct = 0;
         for (int i = 0; i < X.size(); ++i) {
-            if (predict(X[i]) == y[i]) {
-                correct++;
-            }
+            if (predict(X[i]) == y[i]) correct++;
         }
         return (float)correct / X.size();
     }
-
-    // Train the network
     void train(const vector<vector<float>>& X_train, const vector<uint8_t>& y_train,
                const vector<vector<float>>& X_test, const vector<uint8_t>& y_test,
                int epochs = 10, bool shuffle_data = true, int eval_every = 5) {
-        
         int n_train = X_train.size();
         vector<int> indices(n_train);
         iota(indices.begin(), indices.end(), 0);
-        
         random_device rd;
         mt19937 g(rd());
-        
         for (int epoch = 0; epoch < epochs; ++epoch) {
             float total_loss = 0.0f;
-            
-            // Shuffle training data
-            if (shuffle_data) {
-                shuffle(indices.begin(), indices.end(), g);
-            }
-            
-            // Train on all samples
+            if (shuffle_data) shuffle(indices.begin(), indices.end(), g);
             for (int idx = 0; idx < n_train; ++idx) {
                 int i = indices[idx];
                 total_loss += train_sample(X_train[i], y_train[i]);
             }
-            
-            // Calculate training accuracy
             float train_acc = evaluate(X_train, y_train);
-            
-            msg("Epoch " + to_string(epoch + 1) + "/" + to_string(epochs) 
+            msg("Epoch " + to_string(epoch + 1) + "/" + to_string(epochs)
                  + " - Loss: " + to_string(total_loss / n_train)
                  + " - Train Acc: " + to_string(train_acc * 100) + "%\n");
-            
-            // Evaluate on test set
             if ((epoch + 1) % eval_every == 0 || epoch == epochs - 1) {
                 float test_acc = evaluate(X_test, y_test);
                 msg("  Test Accuracy: " + to_string(test_acc * 100) + "%\n");
             }
         }
     }
-
-    // Set learning rate
-    void set_learning_rate(float new_lr) {
-        lr = new_lr;
-    }
-
-    // Save network to files
+    void set_learning_rate(float new_lr) { lr = new_lr; }
+    // Save only dense layers for now
     void save(const string& prefix) {
+        int dense_idx = 0;
         for (int i = 0; i < layers.size(); ++i) {
-            string filename = prefix + "_layer_" + to_string(i) + ".bin";
-            save_layer(layers[i], filename);
+            if (layers[i].type == LayerType::DENSE) {
+                string filename = prefix + "_layer_" + to_string(dense_idx) + ".bin";
+                save_layer(layers[i].dense, filename);
+                dense_idx++;
+            }
         }
         msg("Network saved with prefix: " + prefix + "\n");
     }
-
 private:
     void save_layer(const DenseLayer& L, const string& file) {
         ofstream f(file, ios::binary);
         int in = L.in_size, out = L.out_size;
         int act_type = static_cast<int>(L.activation_type);
-        
         f.write((char*)&in, sizeof(int));
         f.write((char*)&out, sizeof(int));
         f.write((char*)&act_type, sizeof(int));
-        
-        for (auto& row : L.weights) 
+        for (auto& row : L.weights)
             f.write((char*)row.data(), row.size() * sizeof(float));
         f.write((char*)L.biases.data(), L.biases.size() * sizeof(float));
-        
         f.close();
     }
 };
@@ -462,20 +589,13 @@ int main() {
     auto [train_images, train_labels] = load_cifar_train();
     auto [test_images, test_labels] = load_cifar_test();
     msg("Training samples: " + to_string(train_images.size()) + "\n" + "Test samples: " + to_string(test_images.size()) + "\n" + "Input size: " + to_string(train_images[0].size()) + "\n");
-    
     // Create network using the modular approach
     Network network(0.001f); // learning rate
-    
-    // Method 1: Build network with layer sizes and activation types
-    vector<int> layer_sizes = {3072, 512, 128, 10};
-    
-    network.build(layer_sizes);
-    
+    // Build a simple CNN: Conv(8x5x5)->Flatten->Dense(64)->Dense(10)
+    network.build_cnn();
     // Train the network
-    network.train(train_images, train_labels, test_images, test_labels, 32, true, 6);
-    
+    network.train(train_images, train_labels, test_images, test_labels, 10, true, 2);
     // Save the trained network
     network.save("cifar_network");
-    
     return 0;
 }

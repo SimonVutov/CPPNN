@@ -448,12 +448,26 @@ struct Layer {
 enum class LayerKind { CONV, FLATTEN, DENSE };
 struct LayerConfig {
     LayerKind kind;
-    // For conv: in_h, in_w, in_c, out_h, out_w, out_c, kernel, stride, padding
     int in_h = 0, in_w = 0, in_c = 0, out_h = 0, out_w = 0, out_c = 0, kernel = 0, stride = 0, padding = 0;
-    // For dense: in_size, out_size, activation
     int in_size = 0, out_size = 0;
     ActivationType activation = ActivationType::LINEAR;
     LayerConfig(LayerKind k) : kind(k) {}
+    // Static helpers for user-friendly construction
+    static LayerConfig Conv(int in_h, int in_w, int in_c, int out_h, int out_w, int out_c, int kernel, int stride, int padding) {
+        LayerConfig c(LayerKind::CONV);
+        c.in_h = in_h; c.in_w = in_w; c.in_c = in_c;
+        c.out_h = out_h; c.out_w = out_w; c.out_c = out_c;
+        c.kernel = kernel; c.stride = stride; c.padding = padding;
+        return c;
+    }
+    static LayerConfig Flatten() {
+        return LayerConfig(LayerKind::FLATTEN);
+    }
+    static LayerConfig Dense(int in_size, int out_size, ActivationType activation) {
+        LayerConfig d(LayerKind::DENSE);
+        d.in_size = in_size; d.out_size = out_size; d.activation = activation;
+        return d;
+    }
 };
 
 struct Network {
@@ -489,10 +503,17 @@ struct Network {
         activations_1d.resize(layers.size());
     }
     // Forward pass
-    vector<float> forward(const vector<float>& x) {
+    vector<float> forward(const vector<float>& x, bool verbose = false) {
         vector<vector<vector<float>>> current3d;
         vector<float> current1d = x;
         for (int i = 0; i < layers.size(); ++i) {
+            string layer_type;
+            switch (layers[i].type) {
+                case LayerType::CONV: layer_type = "Conv"; break;
+                case LayerType::FLATTEN: layer_type = "Flatten"; break;
+                case LayerType::DENSE: layer_type = "Dense"; break;
+            }
+            if (verbose) cout << "[Forward] Entering Layer " << i << ": " << layer_type << endl;
             if (layers[i].type == LayerType::CONV) {
                 if (i == 0) current3d = reshape1Dto3D(current1d, 3, 32, 32);
                 current3d = layers[i].conv.forward(current3d);
@@ -526,8 +547,8 @@ struct Network {
             }
         }
     }
-    float train_sample(const vector<float>& x, int y) {
-        auto output = forward(x);
+    float train_sample(const vector<float>& x, int y, bool verbose = false) {
+        auto output = forward(x, verbose);
         auto pred = softmax(output);
         float loss = cross_entropy(pred, y);
         auto grad = softmax_loss_backward(pred, y);
@@ -559,7 +580,7 @@ struct Network {
             if (shuffle_data) shuffle(indices.begin(), indices.end(), g);
             for (int idx = 0; idx < n_train; ++idx) {
                 int i = indices[idx];
-                total_loss += train_sample(X_train[i], y_train[i]);
+                total_loss += train_sample(X_train[i], y_train[i], (idx + 1) % 5000 == 0);
             }
             float train_acc = evaluate(X_train, y_train);
             msg("Epoch " + to_string(epoch + 1) + "/" + to_string(epochs)
@@ -606,10 +627,13 @@ int main() {
     msg("Training samples: " + to_string(train_images.size()) + "\n" + "Test samples: " + to_string(test_images.size()) + "\n" + "Input size: " + to_string(train_images[0].size()) + "\n");
     // User specifies the network architecture here:
     vector<LayerConfig> user_layers = {
-        [](){ LayerConfig c(LayerKind::CONV); c.in_h=32; c.in_w=32; c.in_c=3; c.out_h=32; c.out_w=32; c.out_c=2; c.kernel=5; c.stride=1; c.padding=2; return c; }(),
-        LayerConfig(LayerKind::FLATTEN),
-        [](){ LayerConfig d(LayerKind::DENSE); d.in_size=32*32*2; d.out_size=12; d.activation=ActivationType::RELU; return d; }(),
-        [](){ LayerConfig d(LayerKind::DENSE); d.in_size=12; d.out_size=10; d.activation=ActivationType::LINEAR; return d; }()
+        LayerConfig::Conv(32, 32, 3, 28, 28, 8, 5, 1, 0),
+        LayerConfig::Conv(28, 28, 8, 24, 24, 16, 5, 1, 0),
+        LayerConfig::Conv(24, 24, 16, 20, 20, 32, 5, 1, 0),
+        LayerConfig::Flatten(),
+        LayerConfig::Dense(20*20*32, 512, ActivationType::LEAKY_RELU),
+        LayerConfig::Dense(512, 128, ActivationType::LEAKY_RELU),
+        LayerConfig::Dense(128, 10, ActivationType::LINEAR)
     };
     Network network(0.001f); // learning rate
     network.build_from_config(user_layers);

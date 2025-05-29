@@ -444,6 +444,18 @@ struct Layer {
     Layer() : type(LayerType::FLATTEN), dense(0,0), conv(0,0,0,0,0,0,0,0,0) {}
 };
 
+// Add LayerKind and LayerConfig for user-specified network
+enum class LayerKind { CONV, FLATTEN, DENSE };
+struct LayerConfig {
+    LayerKind kind;
+    // For conv: in_h, in_w, in_c, out_h, out_w, out_c, kernel, stride, padding
+    int in_h = 0, in_w = 0, in_c = 0, out_h = 0, out_w = 0, out_c = 0, kernel = 0, stride = 0, padding = 0;
+    // For dense: in_size, out_size, activation
+    int in_size = 0, out_size = 0;
+    ActivationType activation = ActivationType::LINEAR;
+    LayerConfig(LayerKind k) : kind(k) {}
+};
+
 struct Network {
     vector<Layer> layers;
     vector<vector<float>> activations_1d; // for dense
@@ -462,14 +474,17 @@ struct Network {
         layers.emplace_back(DenseLayer(input_size, output_size, activation));
         activations_1d.resize(layers.size());
     }
-    // Build a simple conv net: conv, flatten, dense, output
-    void build_cnn() {
+    void build_from_config(const vector<LayerConfig>& configs) {
         layers.clear();
-        // CIFAR-10: 32x32x3
-        add_conv(32, 32, 3, 28, 28, 8, 5, 1, 0); // 8 filters, 5x5, stride 1, no padding
-        add_flatten();
-        add_dense(28*28*8, 64, ActivationType::RELU);
-        add_dense(64, 10, ActivationType::LINEAR);
+        for (const auto& cfg : configs) {
+            if (cfg.kind == LayerKind::CONV) {
+                add_conv(cfg.in_h, cfg.in_w, cfg.in_c, cfg.out_h, cfg.out_w, cfg.out_c, cfg.kernel, cfg.stride, cfg.padding);
+            } else if (cfg.kind == LayerKind::FLATTEN) {
+                add_flatten();
+            } else if (cfg.kind == LayerKind::DENSE) {
+                add_dense(cfg.in_size, cfg.out_size, cfg.activation);
+            }
+        }
         activations_3d.resize(layers.size());
         activations_1d.resize(layers.size());
     }
@@ -589,13 +604,16 @@ int main() {
     auto [train_images, train_labels] = load_cifar_train();
     auto [test_images, test_labels] = load_cifar_test();
     msg("Training samples: " + to_string(train_images.size()) + "\n" + "Test samples: " + to_string(test_images.size()) + "\n" + "Input size: " + to_string(train_images[0].size()) + "\n");
-    // Create network using the modular approach
+    // User specifies the network architecture here:
+    vector<LayerConfig> user_layers = {
+        [](){ LayerConfig c(LayerKind::CONV); c.in_h=32; c.in_w=32; c.in_c=3; c.out_h=32; c.out_w=32; c.out_c=2; c.kernel=5; c.stride=1; c.padding=2; return c; }(),
+        LayerConfig(LayerKind::FLATTEN),
+        [](){ LayerConfig d(LayerKind::DENSE); d.in_size=32*32*2; d.out_size=12; d.activation=ActivationType::RELU; return d; }(),
+        [](){ LayerConfig d(LayerKind::DENSE); d.in_size=12; d.out_size=10; d.activation=ActivationType::LINEAR; return d; }()
+    };
     Network network(0.001f); // learning rate
-    // Build a simple CNN: Conv(8x5x5)->Flatten->Dense(64)->Dense(10)
-    network.build_cnn();
-    // Train the network
+    network.build_from_config(user_layers);
     network.train(train_images, train_labels, test_images, test_labels, 10, true, 2);
-    // Save the trained network
     network.save("cifar_network");
     return 0;
 }

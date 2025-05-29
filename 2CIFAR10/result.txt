@@ -239,3 +239,31 @@ Input size: 3072
 Wed May 28 21:50:05 2025 : Epoch 1/10 - Loss: 1.703233 - Train Acc: 46.279999%
 Wed May 28 21:51:44 2025 : Epoch 2/10 - Loss: 1.481653 - Train Acc: 53.144001%
 Wed May 28 21:51:52 2025 :   Test Accuracy: 49.590000%
+Wed May 28 21:53:32 2025 : Epoch 3/10 - Loss: 1.393705 - Train Acc: 54.340000%
+Wed May 28 21:55:09 2025 : Epoch 4/10 - Loss: 1.337813 - Train Acc: 55.066002%
+Wed May 28 21:55:17 2025 :   Test Accuracy: 49.090000%
+Wed May 28 21:57:00 2025 : Epoch 5/10 - Loss: 1.290432 - Train Acc: 55.695999%
+Wed May 28 22:00:41 2025 : Loading cifar-10-batches-bin/data_batch_1.bin...
+Wed May 28 22:00:41 2025 : Loading cifar-10-batches-bin/data_batch_2.bin...
+Wed May 28 22:00:41 2025 : Loading cifar-10-batches-bin/data_batch_3.bin...
+Wed May 28 22:00:41 2025 : Loading cifar-10-batches-bin/data_batch_4.bin...
+Wed May 28 22:00:41 2025 : Loading cifar-10-batches-bin/data_batch_5.bin...
+Wed May 28 22:00:41 2025 : Loaded 50000 training images
+Wed May 28 22:00:41 2025 : Loading cifar-10-batches-bin/test_batch.bin...
+Wed May 28 22:00:41 2025 : Loaded 10000 test images
+Wed May 28 22:00:41 2025 : Training samples: 50000
+Test samples: 10000
+Input size: 3072
+Wed May 28 22:01:05 2025 : Epoch 1/10 - Loss: 1.984248 - Train Acc: 33.118000%
+Wed May 28 22:01:29 2025 : Epoch 2/10 - Loss: 1.741004 - Train Acc: 40.742001%
+Wed May 28 22:01:31 2025 :   Test Accuracy: 39.639999%
+Wed May 28 22:01:55 2025 : Epoch 3/10 - Loss: 1.682441 - Train Acc: 41.323997%
+Wed May 28 22:02:21 2025 : Epoch 4/10 - Loss: 1.655810 - Train Acc: 40.983997%
+Wed May 28 22:02:22 2025 :   Test Accuracy: 39.869999%
+Wed May 28 22:02:47 2025 : Epoch 5/10 - Loss: 1.640198 - Train Acc: 42.366001%
+Wed May 28 22:03:12 2025 : Epoch 6/10 - Loss: 1.625698 - Train Acc: 42.981998%
+Wed May 28 22:03:13 2025 :   Test Accuracy: 41.270000%
+Wed May 28 22:03:37 2025 : Epoch 7/10 - Loss: 1.614538 - Train Acc: 43.191998%
+Wed May 28 22:04:03 2025 : Epoch 8/10 - Loss: 1.603621 - Train Acc: 42.916000%
+Wed May 28 22:04:05 2025 :   Test Accuracy: 41.570000%
+Wed May 28 22:04:28 2025 : Epoch 9/10 - Loss: 1.593773 - Train Acc: 43.169998%

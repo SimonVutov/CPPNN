@@ -22,8 +22,7 @@ cd CPPNN
 
 These instructions require the Invariant revision containing Python bindings.
 Until these changes are merged, check out `codex/release-0.1-hardening` in
-Invariant and `codex/polish-invariant-integration` in CPPNN after those branches
-have been pushed.
+Invariant and `codex/polish-invariant-integration` in CPPNN.
 
 ## Data
 
@@ -81,7 +80,7 @@ changing Invariant. `model.py` imports `invariant.matmul`; no source path is
 hardcoded into the trainer. The original C++ trainers do not depend on Invariant.
 
 CI separately checks out a pinned Invariant commit in `.github/workflows/ci.yml`.
-Push that commit before running CPPNN CI. If it is replaced by a squash/rebase,
+That commit is available on GitHub. If it is replaced by a squash/rebase,
 update the workflow's `ref` to the published replacement commit.
 
 The model uses 2×2 average pooling, 768 input features, 128 hidden ReLU units, and

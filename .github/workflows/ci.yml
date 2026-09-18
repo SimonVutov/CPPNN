@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: SimonVutov/invariant
-          ref: 37b888c1e758d20e98eabd49b4da2d6a73ab6a07
+          ref: b89df1a7f878d0ae52ca08d2600c88ff7fadba48
           path: .ci/invariant
       - uses: actions/setup-python@v5
         with:

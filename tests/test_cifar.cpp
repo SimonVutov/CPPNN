@@ -30,4 +30,14 @@ int main() {
         CHECK(std::abs(derivative-input_grad[0][i][j])<0.002f);
     }
     CHECK(reshape1Dto3D(flatten3D(input),1,3,3)==input);
+    fails([]{DenseLayer invalid(-1,2);});
+    DenseLayer unchecked(2,2);
+    fails([&]{unchecked.forward({1});});
+    fails([&]{unchecked.backward({1,2},0);});
+    fails([]{softmax({});});
+    fails([]{cross_entropy({0.5f,0.5f},3);});
+    fails([]{ConvolutionalLayer invalid(3,3,1,5,5,1,2,1,0);});
+    fails([&]{conv.forward({});});
+    fails([&]{conv.backward({},0);});
+    fails([]{reshape1Dto3D({1},2,2,2);});
 }

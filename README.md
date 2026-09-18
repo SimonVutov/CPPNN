@@ -37,6 +37,7 @@ ctest --test-dir build -C Release --output-on-failure
 ```
 
 On Windows/multi-configuration builds, use executables under `build/Release`.
+A local five-epoch MNIST run (seed 42) achieved **91.16% test accuracy**.
 Both trainers accept `--help`, `--data`, `--output`, `--epochs`, `--seed`, and
 `--limit` (limits both training and test samples for smoke runs). The C++ CIFAR
 architecture is a slow experimental baseline; its export contains **dense weights

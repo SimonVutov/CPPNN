@@ -168,6 +168,8 @@ struct DenseLayer { // Fully connected layer
 
     DenseLayer(int in_sz, int out_sz, ActivationType act_type = ActivationType::LINEAR) 
         : in_size(in_sz), out_size(out_sz), activation_type(act_type) {
+        if (in_size < 0 || out_size < 0 || ((in_size == 0) != (out_size == 0)))
+            throw invalid_argument("Invalid dense layer dimensions");
         weights.resize(out_size, vector<float>(in_size));
         biases.resize(out_size);
         pre_activation.resize(out_size);
@@ -192,6 +194,8 @@ struct DenseLayer { // Fully connected layer
     }
 
     vector<float> forward(const vector<float>& x) {
+        if (!in_size || x.size() != static_cast<size_t>(in_size))
+            throw invalid_argument("Dense input shape mismatch");
         input = x;
         
         for (int i = 0; i < out_size; ++i) {
@@ -206,6 +210,8 @@ struct DenseLayer { // Fully connected layer
     }
     
     vector<float> backward(const vector<float>& grad_out, float lr) {
+        if (input.size() != static_cast<size_t>(in_size) || grad_out.size() != static_cast<size_t>(out_size) || !in_size)
+            throw invalid_argument("Dense backward requires a forward pass and matching gradient");
         delta.assign(in_size, 0.0f);
         
         for (int i = 0; i < out_size; ++i) {
@@ -236,6 +242,12 @@ struct ConvolutionalLayer {
 
     ConvolutionalLayer(int in_h, int in_w, int in_c, int out_h, int out_w, int out_c, int kernel_size, int stride, int padding) 
         : in_h(in_h), in_w(in_w), in_c(in_c), out_h(out_h), out_w(out_w), out_c(out_c), kernel_size(kernel_size), stride(stride), padding(padding) {
+        const bool placeholder = in_h==0 && in_w==0 && in_c==0 && out_h==0 && out_w==0 && out_c==0 && kernel_size==0 && stride==0 && padding==0;
+        if (!placeholder && (in_h<=0 || in_w<=0 || in_c<=0 || out_c<=0 || out_h<=0 || out_w<=0 || kernel_size<=0 || stride<=0 || padding<0 ||
+            int64_t(in_h)+2LL*padding<kernel_size || int64_t(in_w)+2LL*padding<kernel_size ||
+            int64_t(in_h)+2LL*padding>INT32_MAX || int64_t(in_w)+2LL*padding>INT32_MAX ||
+            out_h!=(int64_t(in_h)+2LL*padding-kernel_size)/stride+1 || out_w!=(int64_t(in_w)+2LL*padding-kernel_size)/stride+1))
+            throw invalid_argument("Invalid convolution dimensions");
         weights.resize(out_c, vector<vector<vector<float>>>(in_c, vector<vector<float>>(kernel_size, vector<float>(kernel_size))));
         biases.resize(out_c);
         // Xavier/Glorot initialization
@@ -257,6 +269,11 @@ struct ConvolutionalLayer {
     }
 
     vector<vector<vector<float>>> pad_input(const vector<vector<vector<float>>>& x) {
+        if (!in_c || x.size()!=static_cast<size_t>(in_c)) throw invalid_argument("Convolution channel mismatch");
+        for (const auto& channel:x) {
+            if(channel.size()!=static_cast<size_t>(in_h)) throw invalid_argument("Convolution height mismatch");
+            for(const auto& row:channel) if(row.size()!=static_cast<size_t>(in_w)) throw invalid_argument("Convolution width mismatch");
+        }
         int padded_h = in_h + 2 * padding;
         int padded_w = in_w + 2 * padding;
         vector<vector<vector<float>>> padded(in_c, vector<vector<float>>(padded_h, vector<float>(padded_w, 0.0f)));
@@ -298,6 +315,11 @@ struct ConvolutionalLayer {
     vector<vector<vector<float>>> backward(const vector<vector<vector<float>>>& grad_out, float lr) {
         // grad_out: [out_c][out_h][out_w]
         // Returns grad_input: [in_c][in_h][in_w]
+        if(grad_out.size()!=static_cast<size_t>(out_c)) throw invalid_argument("Convolution gradient channel mismatch");
+        for(const auto& channel:grad_out) {
+            if(channel.size()!=static_cast<size_t>(out_h)) throw invalid_argument("Convolution gradient height mismatch");
+            for(const auto& row:channel) if(row.size()!=static_cast<size_t>(out_w)) throw invalid_argument("Convolution gradient width mismatch");
+        }
         auto padded_input = pad_input(last_input);
         int padded_h = in_h + 2 * padding;
         int padded_w = in_w + 2 * padding;
@@ -359,6 +381,7 @@ vector<float> flatten3D(const vector<vector<vector<float>>>& x) {
 }
 // Utility: reshape 1D vector to 3D tensor (channels, height, width)
 vector<vector<vector<float>>> reshape1Dto3D(const vector<float>& x, int c, int h, int w) {
+    if(c<=0 || h<=0 || w<=0 || (uint64_t(c)*h > x.size()/static_cast<size_t>(w) || uint64_t(c)*h*w != x.size())) throw invalid_argument("Invalid reshape dimensions");
     vector<vector<vector<float>>> out(c, vector<vector<float>>(h, vector<float>(w)));
     int idx = 0;
     for (int ch = 0; ch < c; ++ch)
@@ -370,6 +393,7 @@ vector<vector<vector<float>>> reshape1Dto3D(const vector<float>& x, int c, int h
 
 // Softmax + Cross-Entropy loss
 vector<float> softmax(const vector<float> &logits) {
+  if (logits.empty()) throw invalid_argument("Softmax requires nonempty logits");
   float max_logit = *max_element(logits.begin(), logits.end());
   float sum = 0.0f;
   vector<float> probs(logits.size());
@@ -383,16 +407,19 @@ vector<float> softmax(const vector<float> &logits) {
 }
 
 float cross_entropy(const vector<float> &pred, int label) {
+  if (label < 0 || static_cast<size_t>(label) >= pred.size()) throw invalid_argument("Invalid class label");
   return -log(pred[label] + 1e-8f);
 }
 
 vector<float> softmax_loss_backward(const vector<float> &pred, int label) {
+  if (label < 0 || static_cast<size_t>(label) >= pred.size()) throw invalid_argument("Invalid class label");
   vector<float> grad = pred;
   grad[label] -= 1.0f;
   return grad;
 }
 
 int argmax(const vector<float> &v) {
+  if (v.empty()) throw invalid_argument("argmax requires nonempty input");
   return max_element(v.begin(), v.end()) - v.begin();
 }
 
@@ -572,6 +599,7 @@ struct Network {
 private:
     void save_layer(const DenseLayer& L, const string& file) {
         ofstream f(file, ios::binary);
+        if(!f) throw runtime_error("Cannot write model: " + file);
         int in = L.in_size, out = L.out_size;
         int act_type = static_cast<int>(L.activation_type);
         f.write((char*)&in, sizeof(int));

@@ -13,4 +13,10 @@ int main() {
     auto probabilities=softmax({1000,1001});
     CHECK(std::abs(probabilities[0]+probabilities[1]-1)<1e-6);
     CHECK(std::isfinite(cross_entropy(probabilities,0)));
+    fails([]{DenseLayer invalid(-1,2);});
+    DenseLayer unchecked(2,2);
+    fails([&]{unchecked.forward({1});});
+    fails([&]{unchecked.backward({1,2},0);});
+    fails([]{softmax({});});
+    fails([]{cross_entropy({0.5f,0.5f},3);});
 }

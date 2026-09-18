@@ -70,6 +70,8 @@ struct DenseLayer { // Fully connected layer
     vector<float> pre_activation; // Store values before activation for derivative calculation
 
     DenseLayer(int in_sz, int out_sz) : in_size(in_sz), out_size(out_sz) {
+        if (in_size < 0 || out_size < 0 || ((in_size == 0) != (out_size == 0)))
+            throw invalid_argument("Invalid dense layer dimensions");
         weights.resize(out_size, vector<float>(in_size));
         biases.resize(out_size);
         pre_activation.resize(out_size);
@@ -81,6 +83,8 @@ struct DenseLayer { // Fully connected layer
     }
 
     vector<float> forward(const vector<float>& x, ActivationFunc activation_func = nullptr) {
+        if (!in_size || x.size() != static_cast<size_t>(in_size))
+            throw invalid_argument("Dense input shape mismatch");
         input = x;
         output.resize(out_size);
         pre_activation.resize(out_size);
@@ -102,6 +106,8 @@ struct DenseLayer { // Fully connected layer
     }
     
     vector<float> backward(const vector<float>& grad_out, float lr, DerivativeFunc derivative_func = nullptr) {
+        if (input.size() != static_cast<size_t>(in_size) || grad_out.size() != static_cast<size_t>(out_size) || !in_size)
+            throw invalid_argument("Dense backward requires a forward pass and matching gradient");
         delta.assign(in_size, 0.0f);
         for (int i = 0; i < out_size; ++i) {
             float activation_grad = 1.0f; // Default for linear/no activation
@@ -124,6 +130,7 @@ struct DenseLayer { // Fully connected layer
 
 // Softmax + Cross-Entropy loss
 vector<float> softmax(const vector<float> &logits) {
+  if (logits.empty()) throw invalid_argument("Softmax requires nonempty logits");
   float max_logit = *max_element(logits.begin(), logits.end());
   float sum = 0.0f;
   vector<float> probs(logits.size());
@@ -137,16 +144,19 @@ vector<float> softmax(const vector<float> &logits) {
 }
 
 float cross_entropy(const vector<float> &pred, int label) {
+  if (label < 0 || static_cast<size_t>(label) >= pred.size()) throw invalid_argument("Invalid class label");
   return -log(pred[label] + 1e-8f);
 }
 
 vector<float> softmax_loss_backward(const vector<float> &pred, int label) {
+  if (label < 0 || static_cast<size_t>(label) >= pred.size()) throw invalid_argument("Invalid class label");
   vector<float> grad = pred;
   grad[label] -= 1.0f;
   return grad;
 }
 
 int argmax(const vector<float> &v) {
+  if (v.empty()) throw invalid_argument("argmax requires nonempty input");
   return max_element(v.begin(), v.end()) - v.begin();
 }
 

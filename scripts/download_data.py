@@ -17,6 +17,7 @@ MNIST = {
 
 
 def download(url, target, checksum):
+    print(f"Downloading {url}", flush=True)
     digest = hashlib.md5()
     with urllib.request.urlopen(url, timeout=60) as source, target.open("wb") as output:
         while chunk := source.read(1024*1024):

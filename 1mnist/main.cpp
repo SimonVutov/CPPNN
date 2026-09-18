@@ -1,3 +1,5 @@
+#include "../include/data.hpp"
+#include "../include/options.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -11,48 +13,6 @@
 // ./nn
 
 using namespace std;
-
-int32_t read_int(ifstream &f) { // Utility to read 32-bit big-endian integers
-  int32_t result;
-  f.read((char *)&result, 4);
-  return __builtin_bswap32(result);
-}
-
-vector<vector<float>> read_images(const string& filename, int& num_images, int& rows, int& cols) { // Read MNIST images
-    ifstream file(filename, ios::binary);
-    assert(file.is_open());
-
-    int magic = read_int(file);
-    num_images = read_int(file);
-    rows = read_int(file);
-    cols = read_int(file);
-
-    vector<vector<float>> images(num_images, vector<float>(rows * cols));
-    for (int i = 0; i < num_images; ++i) {
-        for (int j = 0; j < rows * cols; ++j) {
-            unsigned char pixel = 0;
-            file.read((char *)&pixel, 1);
-            images[i][j] = pixel / 255.0f;
-        }
-    }
-    return images;
-}
-
-vector<uint8_t> read_labels(const string &filename, int &num_labels) { // Read MNIST labels
-  ifstream file(filename, ios::binary);
-  assert(file.is_open());
-
-  int magic = read_int(file);
-  num_labels = read_int(file);
-
-  vector<uint8_t> labels(num_labels);
-  for (int i = 0; i < num_labels; ++i) {
-    unsigned char label = 0;
-    file.read((char *)&label, 1);
-    labels[i] = label;
-  }
-  return labels;
-}
 
 // Activation functions
 float relu(float x) {
@@ -113,8 +73,7 @@ struct DenseLayer { // Fully connected layer
         weights.resize(out_size, vector<float>(in_size));
         biases.resize(out_size);
         pre_activation.resize(out_size);
-        random_device rd;
-        mt19937 gen(rd());
+        auto& gen = training_rng;
         uniform_real_distribution<float> dist(-1.0f, 1.0f);
         for (auto &row : weights)
             for (auto &w : row)
@@ -193,6 +152,7 @@ int argmax(const vector<float> &v) {
 
 void save_layer(const DenseLayer& L, const string& file) {
     ofstream f(file, ios::binary);
+    if(!f) throw runtime_error("Cannot write model: " + file);
     int in = L.in_size, out = L.out_size;
     f.write((char*)&in,  sizeof(int));
     f.write((char*)&out, sizeof(int));
@@ -200,13 +160,19 @@ void save_layer(const DenseLayer& L, const string& file) {
     f.write((char*)L.biases.data(), L.biases.size()*sizeof(float));
 }
 
-int main() {
+#ifndef CPPNN_NO_MAIN
+int main(int argc, char** argv) try {
+    auto args=options(argc,argv,"1mnist",5);
+    if(args.help) return 0;
     int n_train, n_test, rows, cols;
-    auto train_images = read_images("train-images-idx3-ubyte", n_train, rows, cols);
-    auto train_labels = read_labels("train-labels-idx1-ubyte", n_train);
-    auto test_images = read_images("t10k-images-idx3-ubyte", n_test, rows, cols);
-    auto test_labels = read_labels("t10k-labels-idx1-ubyte", n_test);
+    auto train_images = read_images((args.data/"train-images-idx3-ubyte").string(), n_train, rows, cols);
+    auto train_labels = read_labels((args.data/"train-labels-idx1-ubyte").string(), n_train);
+    auto test_images = read_images((args.data/"t10k-images-idx3-ubyte").string(), n_test, rows, cols);
+    auto test_labels = read_labels((args.data/"t10k-labels-idx1-ubyte").string(), n_test);
 
+    if(train_images.size()!=train_labels.size() || test_images.size()!=test_labels.size())
+        throw runtime_error("Image/label count mismatch");
+    if(args.limit) {n_train=min(n_train,args.limit); n_test=min(n_test,args.limit);}
     DenseLayer l1(784, 12);
     DenseLayer l2(12, 10);
     float lr = 0.005f;
@@ -214,9 +180,10 @@ int main() {
     DerivativeFunc derivative_func = leaky_relu_derivative;
 
     // Open result file for writing
-    ofstream result_file("result.txt");
+    ofstream result_file(args.output/"result.txt");
+    if(!result_file) throw runtime_error("Cannot write training log");
     
-    for (int epoch = 0; epoch < 5; epoch++) {
+    for (int epoch = 0; epoch < args.epochs; epoch++) {
         float total_loss = 0.0f;
         int correct = 0;
         for (int i = 0; i < n_train; i++) {
@@ -245,7 +212,7 @@ int main() {
     // Evaluate on test set
     int correct = 0;
     for (int i = 0; i < n_test; ++i) {
-        auto h = l1.forward(test_images[i], relu);
+        auto h = l1.forward(test_images[i], activation_func);
         auto out = l2.forward(h); // No activation
         auto pred = softmax(out);
         if (argmax(pred) == test_labels[i])
@@ -258,7 +225,9 @@ int main() {
     
     result_file.close();
     
-    save_layer(l1, "l1.bin");
-    save_layer(l2, "l2.bin");
+    save_layer(l1, (args.output/"l1.bin").string());
+    save_layer(l2, (args.output/"l2.bin").string());
     return 0;
 }
+catch(const exception& error) {cerr<<"error: "<<error.what()<<"\n"; return 1;}
+#endif

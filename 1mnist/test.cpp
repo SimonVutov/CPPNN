@@ -1,3 +1,5 @@
+#include "../include/data.hpp"
+#include "../include/options.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -10,48 +12,6 @@
 // g++ -O2 -std=c++17 test.cpp -o test && ./test
 
 using namespace std;
-
-int32_t read_int(ifstream &f) { // Utility to read 32-bit big-endian integers
-  int32_t result;
-  f.read((char *)&result, 4);
-  return __builtin_bswap32(result);
-}
-
-vector<vector<float>> read_images(const string& filename, int& num_images, int& rows, int& cols) { // Read MNIST images
-    ifstream file(filename, ios::binary);
-    assert(file.is_open());
-
-    int magic = read_int(file);
-    num_images = read_int(file);
-    rows = read_int(file);
-    cols = read_int(file);
-
-    vector<vector<float>> images(num_images, vector<float>(rows * cols));
-    for (int i = 0; i < num_images; ++i) {
-        for (int j = 0; j < rows * cols; ++j) {
-            unsigned char pixel = 0;
-            file.read((char *)&pixel, 1);
-            images[i][j] = pixel / 255.0f;
-        }
-    }
-    return images;
-}
-
-vector<uint8_t> read_labels(const string &filename, int &num_labels) { // Read MNIST labels
-  ifstream file(filename, ios::binary);
-  assert(file.is_open());
-
-  int magic = read_int(file);
-  num_labels = read_int(file);
-
-  vector<uint8_t> labels(num_labels);
-  for (int i = 0; i < num_labels; ++i) {
-    unsigned char label = 0;
-    file.read((char *)&label, 1);
-    labels[i] = label;
-  }
-  return labels;
-}
 
 int main() {
     int n_train, n_test, rows, cols;

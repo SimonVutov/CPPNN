@@ -1,6 +1,0 @@
-Epoch 1 - Loss: 0.741931, Accuracy: 76.830002%
-Epoch 2 - Loss: 0.418184, Accuracy: 87.531670%
-Epoch 3 - Loss: 0.356986, Accuracy: 89.416664%
-Epoch 4 - Loss: 0.322725, Accuracy: 90.459999%
-Epoch 5 - Loss: 0.297874, Accuracy: 91.206665%
-Test Accuracy: 90.620003%

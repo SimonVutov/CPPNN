@@ -10,6 +10,21 @@ example powered by [Invariant](https://github.com/SimonVutov/invariant)'s C++ ke
 | `3CIFAR10-invariant` | Python MLP; all dense products use Invariant C++ |
 | `4SVHN` | Notes only; no implemented trainer |
 
+## Get the code
+
+Clone the repositories side by side (skip cloning any checkout you already have):
+
+```sh
+git clone https://github.com/SimonVutov/invariant.git
+git clone https://github.com/SimonVutov/CPPNN.git
+cd CPPNN
+```
+
+These instructions require the Invariant revision containing Python bindings.
+Until these changes are merged, check out `codex/release-0.1-hardening` in
+Invariant and `codex/polish-invariant-integration` in CPPNN after those branches
+have been pushed.
+
 ## Data
 
 Run from the repository root. Python 3.10+ can download and checksum the datasets:
@@ -55,10 +70,19 @@ Keep the two checkouts side by side, then run from CPPNN:
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 python -m pip install '../invariant[test]'
-python -m pytest tests/test_invariant.py
+python -m pytest tests -q
 python 3CIFAR10-invariant/train.py --epochs 20 --output runs/invariant
 python 3CIFAR10-invariant/train.py --evaluate runs/invariant/best.npz
 ```
+
+`pip install '../invariant[test]'` compiles the sibling checkout and installs it
+into this Python environment. It is a regular installation: reinstall after
+changing Invariant. `model.py` imports `invariant.matmul`; no source path is
+hardcoded into the trainer. The original C++ trainers do not depend on Invariant.
+
+CI separately checks out a pinned Invariant commit in `.github/workflows/ci.yml`.
+Push that commit before running CPPNN CI. If it is replaced by a squash/rebase,
+update the workflow's `ref` to the published replacement commit.
 
 The model uses 2×2 average pooling, 768 input features, 128 hidden ReLU units, and
 momentum SGD. NumPy handles preprocessing/elementwise operations; forward and

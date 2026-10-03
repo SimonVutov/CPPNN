@@ -1,0 +1,49 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  cpp:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        config: [Debug, Release]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+      - run: cmake --build build --config ${{ matrix.config }} --parallel
+      - run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: SimonVutov/invariant
+          ref: b89df1a7f878d0ae52ca08d2600c88ff7fadba48
+          path: .ci/invariant
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install ".ci/invariant[test]"
+      - run: python -m pytest tests -q
+  gui-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libopencv-dev
+      - run: cmake -S . -B build -DCPPNN_BUILD_GUI=ON -DBUILD_TESTING=OFF
+      - run: cmake --build build --target digit_ui --parallel

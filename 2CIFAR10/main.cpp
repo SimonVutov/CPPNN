@@ -1,3 +1,8 @@
+#include "../include/data.hpp"
+#include "../include/options.hpp"
+#include <chrono>
+#include <ctime>
+#include <numeric>
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -12,6 +17,8 @@
 
 using namespace std;
 
+std::filesystem::path data_directory="2CIFAR10/cifar-10-batches-bin", output_directory="runs/cifar";
+
 void msg(const string& message) {
     // add time and date to the message
     auto now = chrono::system_clock::now();
@@ -21,7 +28,7 @@ void msg(const string& message) {
     const string newMessage = time_str + " : " + message;
 
     // open in append mode
-    ofstream result_file("result.txt", ios::app);
+    ofstream result_file(output_directory/"result.txt", ios::app);
     if (!result_file) {
         cerr << "Could not open result.txt for appending\n";
         return;
@@ -35,53 +42,13 @@ void msg(const string& message) {
     // no need to explicitly close – it'll close when it goes out of scope
 }
 
-struct CifarData {
-    vector<vector<float>> images;
-    vector<uint8_t> labels;
-};
-
-CifarData read_cifar_batch(const string& filename) {
-    ifstream file(filename, ios::binary);
-    assert(file.is_open());
-    
-    CifarData data;
-    
-    // Each CIFAR-10 file contains 10,000 records
-    // Each record: 1 byte label + 3072 bytes image data (32*32*3)
-    const int num_samples = 10000;
-    const int image_size = 32 * 32 * 3; // 3072
-    
-    data.images.resize(num_samples, vector<float>(image_size));
-    data.labels.resize(num_samples);
-    
-    for (int i = 0; i < num_samples; ++i) {
-        // Read label (1 byte)
-        unsigned char label;
-        file.read((char*)&label, 1);
-        data.labels[i] = label;
-        
-        // Read image data (3072 bytes)
-        // Format: 1024 red bytes, 1024 green bytes, 1024 blue bytes
-        vector<unsigned char> raw_image(image_size);
-        file.read((char*)raw_image.data(), image_size);
-        
-        // Convert to float and normalize [0, 255] -> [0, 1]
-        for (int j = 0; j < image_size; ++j) {
-            data.images[i][j] = raw_image[j] / 255.0f;
-        }
-    }
-    
-    file.close();
-    return data;
-}
-
 pair<vector<vector<float>>, vector<uint8_t>> load_cifar_train() {
     vector<vector<float>> all_images;
     vector<uint8_t> all_labels;
     
     // Load all 5 training batches
     for (int batch = 1; batch <= 5; ++batch) {
-        string filename = "cifar-10-batches-bin/data_batch_" + to_string(batch) + ".bin";
+        string filename = (data_directory/("data_batch_" + to_string(batch) + ".bin")).string();
         msg("Loading " + filename + "...\n");
         
         CifarData batch_data = read_cifar_batch(filename);
@@ -100,7 +67,7 @@ pair<vector<vector<float>>, vector<uint8_t>> load_cifar_train() {
 }
 
 pair<vector<vector<float>>, vector<uint8_t>> load_cifar_test() {
-    string filename = "cifar-10-batches-bin/test_batch.bin";
+    string filename = (data_directory/"test_batch.bin").string();
     msg("Loading " + filename + "...\n");
     
     CifarData test_data = read_cifar_batch(filename);
@@ -201,6 +168,8 @@ struct DenseLayer { // Fully connected layer
 
     DenseLayer(int in_sz, int out_sz, ActivationType act_type = ActivationType::LINEAR) 
         : in_size(in_sz), out_size(out_sz), activation_type(act_type) {
+        if (in_size < 0 || out_size < 0 || ((in_size == 0) != (out_size == 0)))
+            throw invalid_argument("Invalid dense layer dimensions");
         weights.resize(out_size, vector<float>(in_size));
         biases.resize(out_size);
         pre_activation.resize(out_size);
@@ -212,9 +181,8 @@ struct DenseLayer { // Fully connected layer
         derivative_func = deriv_func;
         
         // Xavier/Glorot initialization
-        random_device rd;
-        mt19937 gen(rd());
-        float limit = sqrt(6.0f / (in_size + out_size));
+        auto& gen = training_rng;
+        float limit = in_size+out_size ? sqrt(6.0f / (in_size + out_size)) : 0.0f;
         uniform_real_distribution<float> dist(-limit, limit);
         
         for (auto &row : weights)
@@ -226,6 +194,8 @@ struct DenseLayer { // Fully connected layer
     }
 
     vector<float> forward(const vector<float>& x) {
+        if (!in_size || x.size() != static_cast<size_t>(in_size))
+            throw invalid_argument("Dense input shape mismatch");
         input = x;
         
         for (int i = 0; i < out_size; ++i) {
@@ -240,6 +210,8 @@ struct DenseLayer { // Fully connected layer
     }
     
     vector<float> backward(const vector<float>& grad_out, float lr) {
+        if (input.size() != static_cast<size_t>(in_size) || grad_out.size() != static_cast<size_t>(out_size) || !in_size)
+            throw invalid_argument("Dense backward requires a forward pass and matching gradient");
         delta.assign(in_size, 0.0f);
         
         for (int i = 0; i < out_size; ++i) {
@@ -270,14 +242,19 @@ struct ConvolutionalLayer {
 
     ConvolutionalLayer(int in_h, int in_w, int in_c, int out_h, int out_w, int out_c, int kernel_size, int stride, int padding) 
         : in_h(in_h), in_w(in_w), in_c(in_c), out_h(out_h), out_w(out_w), out_c(out_c), kernel_size(kernel_size), stride(stride), padding(padding) {
+        const bool placeholder = in_h==0 && in_w==0 && in_c==0 && out_h==0 && out_w==0 && out_c==0 && kernel_size==0 && stride==0 && padding==0;
+        if (!placeholder && (in_h<=0 || in_w<=0 || in_c<=0 || out_c<=0 || out_h<=0 || out_w<=0 || kernel_size<=0 || stride<=0 || padding<0 ||
+            int64_t(in_h)+2LL*padding<kernel_size || int64_t(in_w)+2LL*padding<kernel_size ||
+            int64_t(in_h)+2LL*padding>INT32_MAX || int64_t(in_w)+2LL*padding>INT32_MAX ||
+            out_h!=(int64_t(in_h)+2LL*padding-kernel_size)/stride+1 || out_w!=(int64_t(in_w)+2LL*padding-kernel_size)/stride+1))
+            throw invalid_argument("Invalid convolution dimensions");
         weights.resize(out_c, vector<vector<vector<float>>>(in_c, vector<vector<float>>(kernel_size, vector<float>(kernel_size))));
         biases.resize(out_c);
         // Xavier/Glorot initialization
-        random_device rd;
-        mt19937 gen(rd());
+        auto& gen = training_rng;
         float fan_in = in_c * kernel_size * kernel_size;
         float fan_out = out_c;
-        float limit = sqrt(6.0f / (fan_in + fan_out));
+        float limit = fan_in+fan_out ? sqrt(6.0f / (fan_in + fan_out)) : 0.0f;
         uniform_real_distribution<float> dist(-limit, limit);
         for (int i = 0; i < out_c; ++i) {
             for (int j = 0; j < in_c; ++j) {
@@ -292,6 +269,11 @@ struct ConvolutionalLayer {
     }
 
     vector<vector<vector<float>>> pad_input(const vector<vector<vector<float>>>& x) {
+        if (!in_c || x.size()!=static_cast<size_t>(in_c)) throw invalid_argument("Convolution channel mismatch");
+        for (const auto& channel:x) {
+            if(channel.size()!=static_cast<size_t>(in_h)) throw invalid_argument("Convolution height mismatch");
+            for(const auto& row:channel) if(row.size()!=static_cast<size_t>(in_w)) throw invalid_argument("Convolution width mismatch");
+        }
         int padded_h = in_h + 2 * padding;
         int padded_w = in_w + 2 * padding;
         vector<vector<vector<float>>> padded(in_c, vector<vector<float>>(padded_h, vector<float>(padded_w, 0.0f)));
@@ -333,6 +315,11 @@ struct ConvolutionalLayer {
     vector<vector<vector<float>>> backward(const vector<vector<vector<float>>>& grad_out, float lr) {
         // grad_out: [out_c][out_h][out_w]
         // Returns grad_input: [in_c][in_h][in_w]
+        if(grad_out.size()!=static_cast<size_t>(out_c)) throw invalid_argument("Convolution gradient channel mismatch");
+        for(const auto& channel:grad_out) {
+            if(channel.size()!=static_cast<size_t>(out_h)) throw invalid_argument("Convolution gradient height mismatch");
+            for(const auto& row:channel) if(row.size()!=static_cast<size_t>(out_w)) throw invalid_argument("Convolution gradient width mismatch");
+        }
         auto padded_input = pad_input(last_input);
         int padded_h = in_h + 2 * padding;
         int padded_w = in_w + 2 * padding;
@@ -394,6 +381,7 @@ vector<float> flatten3D(const vector<vector<vector<float>>>& x) {
 }
 // Utility: reshape 1D vector to 3D tensor (channels, height, width)
 vector<vector<vector<float>>> reshape1Dto3D(const vector<float>& x, int c, int h, int w) {
+    if(c<=0 || h<=0 || w<=0 || (uint64_t(c)*h > x.size()/static_cast<size_t>(w) || uint64_t(c)*h*w != x.size())) throw invalid_argument("Invalid reshape dimensions");
     vector<vector<vector<float>>> out(c, vector<vector<float>>(h, vector<float>(w)));
     int idx = 0;
     for (int ch = 0; ch < c; ++ch)
@@ -405,6 +393,7 @@ vector<vector<vector<float>>> reshape1Dto3D(const vector<float>& x, int c, int h
 
 // Softmax + Cross-Entropy loss
 vector<float> softmax(const vector<float> &logits) {
+  if (logits.empty()) throw invalid_argument("Softmax requires nonempty logits");
   float max_logit = *max_element(logits.begin(), logits.end());
   float sum = 0.0f;
   vector<float> probs(logits.size());
@@ -418,16 +407,19 @@ vector<float> softmax(const vector<float> &logits) {
 }
 
 float cross_entropy(const vector<float> &pred, int label) {
+  if (label < 0 || static_cast<size_t>(label) >= pred.size()) throw invalid_argument("Invalid class label");
   return -log(pred[label] + 1e-8f);
 }
 
 vector<float> softmax_loss_backward(const vector<float> &pred, int label) {
+  if (label < 0 || static_cast<size_t>(label) >= pred.size()) throw invalid_argument("Invalid class label");
   vector<float> grad = pred;
   grad[label] -= 1.0f;
   return grad;
 }
 
 int argmax(const vector<float> &v) {
+  if (v.empty()) throw invalid_argument("argmax requires nonempty input");
   return max_element(v.begin(), v.end()) - v.begin();
 }
 
@@ -573,8 +565,7 @@ struct Network {
         int n_train = X_train.size();
         vector<int> indices(n_train);
         iota(indices.begin(), indices.end(), 0);
-        random_device rd;
-        mt19937 g(rd());
+        auto& g = training_rng;
         for (int epoch = 0; epoch < epochs; ++epoch) {
             float total_loss = 0.0f;
             if (shuffle_data) shuffle(indices.begin(), indices.end(), g);
@@ -594,7 +585,7 @@ struct Network {
     }
     void set_learning_rate(float new_lr) { lr = new_lr; }
     // Save only dense layers for now
-    void save(const string& prefix) {
+    void save_dense_weights(const string& prefix) {
         int dense_idx = 0;
         for (int i = 0; i < layers.size(); ++i) {
             if (layers[i].type == LayerType::DENSE) {
@@ -603,11 +594,12 @@ struct Network {
                 dense_idx++;
             }
         }
-        msg("Network saved with prefix: " + prefix + "\n");
+        msg("Dense weights saved (convolutions excluded), prefix: " + prefix + "\n");
     }
 private:
     void save_layer(const DenseLayer& L, const string& file) {
         ofstream f(file, ios::binary);
+        if(!f) throw runtime_error("Cannot write model: " + file);
         int in = L.in_size, out = L.out_size;
         int act_type = static_cast<int>(L.activation_type);
         f.write((char*)&in, sizeof(int));
@@ -620,10 +612,18 @@ private:
     }
 };
 
-int main() {
+#ifndef CPPNN_NO_MAIN
+int main(int argc, char** argv) try {
+    auto args=options(argc,argv,"2CIFAR10/cifar-10-batches-bin",10);
+    if(args.help) return 0;
+    data_directory=args.data; output_directory=args.output;
     // Load CIFAR-10 data
     auto [train_images, train_labels] = load_cifar_train();
     auto [test_images, test_labels] = load_cifar_test();
+    if(args.limit) {
+        train_images.resize(min(train_images.size(),size_t(args.limit))); train_labels.resize(train_images.size());
+        test_images.resize(min(test_images.size(),size_t(args.limit))); test_labels.resize(test_images.size());
+    }
     msg("Training samples: " + to_string(train_images.size()) + "\n" + "Test samples: " + to_string(test_images.size()) + "\n" + "Input size: " + to_string(train_images[0].size()) + "\n");
     // User specifies the network architecture here:
     vector<LayerConfig> user_layers = {
@@ -637,7 +637,9 @@ int main() {
     };
     Network network(0.001f); // learning rate
     network.build_from_config(user_layers);
-    network.train(train_images, train_labels, test_images, test_labels, 10, true, 2);
-    network.save("cifar_network");
+    network.train(train_images, train_labels, test_images, test_labels, args.epochs, true, 2);
+    network.save_dense_weights((args.output/"cifar_network").string());
     return 0;
 }
+catch(const exception& error) {cerr<<"error: "<<error.what()<<"\n"; return 1;}
+#endif

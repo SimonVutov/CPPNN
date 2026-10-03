@@ -1,0 +1,17 @@
+build/
+runs/
+.venv/
+.pytest_cache/
+__pycache__/
+.ci/
+*.pyc
+.DS_Store
+*.dSYM/
+*.exe
+*.bin
+*-idx*-ubyte
+cifar-*-batches-bin/
+nn
+test
+digit_ui
+result.txt

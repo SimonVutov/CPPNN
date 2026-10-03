@@ -20,9 +20,9 @@ git clone https://github.com/SimonVutov/CPPNN.git
 cd CPPNN
 ```
 
-These instructions require the Invariant revision containing Python bindings.
-Until these changes are merged, check out `codex/release-0.1-hardening` in
-Invariant and `codex/polish-invariant-integration` in CPPNN.
+Use the default `main` branch of both repositories. Invariant's Python bindings
+are required only for `3CIFAR10-invariant`; the original C++ trainers build on
+their own.
 
 ## Data
 
@@ -58,6 +58,16 @@ architecture is a slow experimental baseline; its export contains **dense weight
 only**, not a reloadable complete CNN. Use the Invariant example for a complete
 checkpoint/evaluation workflow. `1mnist/test.cpp` is an archived training experiment.
 
+After downloading the data, exercise both trainers without a full training run:
+
+```sh
+./build/mnist --data 1mnist --output runs/mnist-smoke --epochs 1 --limit 100 --seed 42
+./build/cifar10 --output runs/cifar-smoke --epochs 1 --limit 2 --seed 42
+```
+
+Smoke-run accuracy is not a model-quality benchmark. `--limit` shortens training
+and evaluation but does not avoid loading the dataset into memory.
+
 The optional drawing UI needs OpenCV: configure with `-DCPPNN_BUILD_GUI=ON`, then
 run `./build/digit_ui runs/mnist`. It uses the trainer's leaky-ReLU activation.
 
@@ -79,9 +89,8 @@ into this Python environment. It is a regular installation: reinstall after
 changing Invariant. `model.py` imports `invariant.matmul`; no source path is
 hardcoded into the trainer. The original C++ trainers do not depend on Invariant.
 
-CI separately checks out a pinned Invariant commit in `.github/workflows/ci.yml`.
-That commit is available on GitHub. If it is replaced by a squash/rebase,
-update the workflow's `ref` to the published replacement commit.
+CI separately checks out a published, pinned Invariant commit in
+`.github/workflows/ci.yml` so dependency updates do not silently change the tests.
 
 The model uses 2×2 average pooling, 768 input features, 128 hidden ReLU units, and
 momentum SGD. NumPy handles preprocessing/elementwise operations; forward and
